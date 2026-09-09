@@ -5,104 +5,108 @@ namespace App\Http\Controllers;
 use App\Models\Servers;
 use App\Models\Traffic;
 use App\Models\Users;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Process;
 
 class FixerController extends Controller
 {
-
     public function cronexp()
     {
-
-
         $users = Users::where('status', 'active')->get();
-        foreach ($users as $us) {
-            if (!empty($us->end_date)) {
-                $expiredate = strtotime(date("Y-m-d", strtotime($us->end_date)));
-                if ($expiredate < strtotime(date("Y-m-d")) || $expiredate == strtotime(date("Y-m-d"))) {
-                    $username=$us->username;
-                    $check_user = Users::where('username', $username)->get();
-                    $server = Servers::where('id', $check_user[0]->server)->get();
-                    $post = [
-                        'token' => $server[0]->token,
-                        'username' => $username,
-                    ];
+        foreach ($users as $user) {
+            if (empty($user->end_date)) {
+                continue;
+            }
 
-                    $ch = curl_init($server[0]->link . '/api/delete');
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_POST, 1);
-                    curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
-                    $response = curl_exec($ch);
-                    $response = json_decode($response, true);
-                    curl_close($ch);
+            if (strtotime($user->end_date) > strtotime(now()->toDateString())) {
+                continue;
+            }
 
-                    if ($response['message'] == 'User Deleted' OR $response['message'] == 'Not Exist User') {
-                        Users::where('username', $us->username)
-                            ->update(['status' => 'expired']);
-                    }
-                }
+            $server = Servers::find($user->server);
+            if (!$server) {
+                continue;
+            }
+
+            $response = $this->serverRequest($server, '/api/delete', ['username' => $user->username]);
+            if (in_array($response['message'] ?? null, ['User Deleted', 'Not Exist User'], true)) {
+                $user->update(['status' => 'expired']);
             }
         }
 
-        $users = Users::all();
-        foreach ($users as $us) {
-            $traffic = Traffic::where('username', $us->username)->get();
-            foreach ($traffic as $usernamet)
-            {
-                $total=$usernamet->total;
-
-                if ($us->traffic < $total && !empty($us->traffic) && $us->traffic > 0) {
-                    $username=$us->username;
-                    $check_user = Users::where('username', $username)->get();
-                    $server = Servers::where('id', $check_user[0]->server)->get();
-                    $post = [
-                        'token' => $server[0]->token,
-                        'username' => $username,
-                    ];
-
-                    $ch = curl_init($server[0]->link . '/api/delete');
-                    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                    curl_setopt($ch, CURLOPT_POST, 1);
-                    curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
-                    $response = curl_exec($ch);
-                    $response = json_decode($response, true);
-                    curl_close($ch);
-
-                    if ($response['message'] == 'User Deleted' OR $response['message'] == 'Not Exist User') {
-                        Users::where('username', $us->username)
-                            ->update(['status' => 'traffic']);
-                    }
-
-
-                }
+        $users = Users::where('status', 'active')->where('traffic', '>', 0)->get();
+        foreach ($users as $user) {
+            $traffic = Traffic::where('username', $user->username)->first();
+            if (!$traffic || $traffic->total === null || $user->traffic >= $traffic->total) {
+                continue;
             }
 
+            $server = Servers::find($user->server);
+            if (!$server) {
+                continue;
+            }
+
+            $response = $this->serverRequest($server, '/api/delete', ['username' => $user->username]);
+            if (in_array($response['message'] ?? null, ['User Deleted', 'Not Exist User'], true)) {
+                $user->update(['status' => 'traffic']);
+            }
         }
+
         $this->synstraffics();
+        return response()->json(['status' => 'ok']);
     }
-
 
     public function synstraffics()
     {
         $users = Users::where('status', 'active')->get();
-        foreach ($users as $us) {
-            $server = Servers::where('id', $us->server)->get();
-            $ch = curl_init($server[0]->link . '/api/' . $server[0]->token . '/online');
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_HTTPGET, 1);
-            $response = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        foreach ($users->groupBy('server') as $serverId => $serverUsers) {
+            $server = Servers::find($serverId);
+            if (!$server) {
+                continue;
+            }
 
-            $response = json_decode($response, true);
-            curl_close($ch);
-            if ($httpCode == 200 and !empty($response[0]['username'])) {
-                $total=$response[0]['traffics']['total'];
-                Traffic::where('username', $response[0]['username'])->update(['download' => '0', 'upload' => '0', 'total' => $total]);
+            $response = $this->serverRequest($server, '/api/' . $server->token . '/online', [], 'GET');
+            $onlineUsers = is_array($response) ? $response : [];
+            foreach ($onlineUsers as $onlineUser) {
+                $username = $onlineUser['username'] ?? null;
+                $total = $onlineUser['traffics']['total'] ?? null;
+                if ($username === null || $total === null || !$serverUsers->contains('username', $username)) {
+                    continue;
+                }
 
+                Traffic::where('username', $username)->update([
+                    'download' => $onlineUser['traffics']['download'] ?? 0,
+                    'upload' => $onlineUser['traffics']['upload'] ?? 0,
+                    'total' => $total,
+                ]);
             }
         }
     }
 
+    private function serverRequest(Servers $server, string $path, array $post = [], string $method = 'POST'): array
+    {
+        $url = rtrim($server->link, '/') . $path;
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ]);
 
+        if ($method !== 'GET') {
+            $post['token'] = $server->token;
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
+        }
+
+        $raw = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($raw === false || $httpCode < 200 || $httpCode >= 300) {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
 }
