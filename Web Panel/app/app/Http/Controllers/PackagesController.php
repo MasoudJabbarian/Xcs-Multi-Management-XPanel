@@ -5,101 +5,97 @@ namespace App\Http\Controllers;
 use App\Models\Admins;
 use App\Models\Packages;
 use App\Models\Servers;
-use App\Models\Users;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Str;
 
 class PackagesController extends Controller
 {
-    public function __construct() {
+    public function __construct()
+    {
         $this->middleware('auth:admins');
     }
-    public function check()
+
+    private function check(): void
     {
-        $user = Auth::user();
-        $check_admin = Admins::where('id', $user->id)->get();
-        if($check_admin[0]->permission=='reseller')
-        {
-            exit(view('access'));
-        }
+        abort_unless(Auth::guard('admins')->user()?->permission === 'admin', 403);
     }
+
     public function index()
     {
         $this->check();
-        $packages = Packages::all();
-        $servers = Servers::all();
-
-        return view('dashboard.package', compact('packages','servers'));
+        $packages = Packages::orderByDesc('id')->get();
+        $servers = Servers::orderBy('id')->get();
+        return view('dashboard.package', compact('packages', 'servers'));
     }
 
     public function insert(Request $request)
     {
         $this->check();
-        $request->validate([
-            'title'=>'required|string',
-            'amount'=>'required|string',
-            'day'=>'required|string',
-            'multi'=>'required|string',
-            'serverid'=>'required|string',
-            'multiuser'=>'required|string',
-            'traffic'=>'required|string'
-        ]);
-        Packages::create([
-            'title' => $request->title,
-            'amount' => $request->amount,
-            'day' => $request->day,
-            'multi' => $request->multi,
-            'server' => $request->serverid,
-            'traffic' => $request->traffic,
-            'multiuser' => $request->multiuser
+        $data = $request->validate([
+            'title' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'min:0'],
+            'day' => ['required', 'integer', 'min:1'],
+            'multi' => ['required', 'string', 'max:50'],
+            'serverid' => ['required', 'integer', 'exists:servers,id'],
+            'multiuser' => ['required', 'integer', 'min:1'],
+            'traffic' => ['required', 'numeric', 'min:0'],
         ]);
 
-        return redirect()->intended(route('package'));
+        Packages::create([
+            'title' => $data['title'],
+            'amount' => $data['amount'],
+            'day' => $data['day'],
+            'multi' => $data['multi'],
+            'server' => $data['serverid'],
+            'traffic' => $data['traffic'],
+            'multiuser' => $data['multiuser'],
+        ]);
+
+        return redirect()->route('package');
     }
-    public function edit(Request $request,$id)
+
+    public function edit(Request $request, $id)
     {
         $this->check();
-        if (!is_numeric($id)) {
-            abort(400, 'Not Valid ID');
-        }
-        $package = Packages::where('id', $id)->get();
-        $servers = Servers::all();
-        return view('dashboard.edit.package', compact('package','servers'));
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        $package = Packages::whereKey((int) $id)->get();
+        abort_if($package->isEmpty(), 404);
+        $servers = Servers::orderBy('id')->get();
+        return view('dashboard.edit.package', compact('package', 'servers'));
     }
+
     public function update(Request $request)
     {
-        $request->validate([
-            'id'=>'required|int',
-            'title'=>'required|string',
-            'amount'=>'required|string',
-            'day'=>'required|string',
-            'multi'=>'required|string',
-            'serverid'=>'required|string',
-            'multiuser'=>'required|string',
-            'traffic'=>'required|string'
-        ]);
-        Packages::where('id', $request->id)->update([
-            'title' => $request->title,
-            'amount' => $request->amount,
-            'day' => $request->day,
-            'multi' => $request->multi,
-            'server' => $request->serverid,
-            'traffic' => $request->traffic,
-            'multiuser' => $request->multiuser
+        $this->check();
+        $data = $request->validate([
+            'id' => ['required', 'integer', 'exists:packages,id'],
+            'title' => ['required', 'string', 'max:255'],
+            'amount' => ['required', 'numeric', 'min:0'],
+            'day' => ['required', 'integer', 'min:1'],
+            'multi' => ['required', 'string', 'max:50'],
+            'serverid' => ['required', 'integer', 'exists:servers,id'],
+            'multiuser' => ['required', 'integer', 'min:1'],
+            'traffic' => ['required', 'numeric', 'min:0'],
         ]);
 
-        return redirect()->intended(route('package'));
+        Packages::whereKey($data['id'])->update([
+            'title' => $data['title'],
+            'amount' => $data['amount'],
+            'day' => $data['day'],
+            'multi' => $data['multi'],
+            'server' => $data['serverid'],
+            'traffic' => $data['traffic'],
+            'multiuser' => $data['multiuser'],
+        ]);
+
+        return redirect()->route('package');
     }
-    public function delete(Request $request,$id)
+
+    public function delete(Request $request, $id)
     {
         $this->check();
-        if (!is_numeric($id)) {
-            abort(400, 'Not Valid Username');
-        }
-        Packages::where('id', $id)->delete();
-        return redirect()->intended(route('package'));
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        Packages::whereKey((int) $id)->delete();
+        return redirect()->route('package');
     }
-
-
 }
