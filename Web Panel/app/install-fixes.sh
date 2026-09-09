@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 APP_ROOT="${1:-/var/www/html/app}"
+ASSET_SOURCE="${2:-}"
 
 if [[ ! -f "${APP_ROOT}/artisan" ]]; then
     echo "Laravel application not found at ${APP_ROOT}." >&2
@@ -50,11 +51,11 @@ cat > public/.htaccess <<'HTACCESS'
 HTACCESS
 
 # The original project stores the panel assets under Web Panel/cp/assets.
-# Copy them into Laravel's public directory so a fresh installation has the
-# same working frontend as the validated production installation.
-if [[ -d "../cp/assets" ]]; then
+# The installer passes that source directory before removing the temporary
+# repository checkout.
+if [[ -n "${ASSET_SOURCE}" && -d "${ASSET_SOURCE}" ]]; then
     rm -rf public/assets
-    cp -a ../cp/assets public/assets
+    cp -a "${ASSET_SOURCE}" public/assets
 fi
 
 # Unlimited package duration: day=0 means no expiration date.
@@ -99,8 +100,6 @@ replacement = '''        $user = Auth::user();\n        $this->syncAllServers();
 
 if needle in text and '$this->syncAllServers();' not in text:
     text = text.replace(needle, replacement, 1)
-
-marker = '''\n}\n'''
 
 methods = r'''
 
@@ -274,7 +273,6 @@ methods = r'''
     }
 '''
 
-# Insert before the final class closing brace.
 if 'private function syncAllServers()' not in text:
     pos = text.rfind('\n}')
     if pos == -1:
@@ -289,7 +287,7 @@ chown -R www-data:www-data "${APP_ROOT}/public"
 find "${APP_ROOT}/public" -type d -exec chmod 755 {} \;
 find "${APP_ROOT}/public" -type f -exec chmod 644 {} \;
 
-# Validate the patched controller before allowing installation to continue.
+# Validate the patched controllers before allowing installation to continue.
 php -l "${APP_ROOT}/app/Http/Controllers/UserController.php"
 php -l "${APP_ROOT}/app/Http/Controllers/ApiController.php"
 php -l "${APP_ROOT}/app/Http/Controllers/PackagesController.php"
