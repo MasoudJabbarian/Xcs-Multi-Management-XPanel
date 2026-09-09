@@ -79,4 +79,7 @@ Route::get('/fixer/exp', function () {
     return app(FixerController::class)->cronexp();
 })->middleware('throttle:5,1')->name('exp');
 
-Auth::routes();
+Route::middleware('guest:admins')->group(function () {
+    Route::get('/login', [LoginController::class, 'showLoginForm'])->name('login');
+    Route::post('/login', [LoginController::class, 'login'])->middleware('throttle:login');
+});
