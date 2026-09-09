@@ -120,28 +120,27 @@ class ApiController extends Controller
             'token' => 'required|string',
             'username' => 'required|string'
         ]);
+
         $this->checktoken($request->token);
-        $check_user = Users::where('username', $request->username)->count();
-        $status_user = Users::where('username',$request->username)->get();
-        if ($check_user > 0) {
-            if ($status_user[0]->status == 'active') {
-                Process::run("sudo killall -u {$request->username}");
-                Process::run("sudo pkill -u {$request->username}");
-                Process::run("sudo timeout 10 pkill -u {$request->username}");
-                Process::run("sudo timeout 10 killall -u {$request->username}");
-                Process::run("sudo userdel -r {$request->username}");
-                Users::where('username', $request->username)->delete();
-                Traffic::where('username', $request->username)->delete();
-                return response()->json(['message' => 'User Deleted']);
-            } else {
-                Users::where('username', $request->username)->delete();
-                Traffic::where('username', $request->username)->delete();
-            }
+
+        $user = Users::where('username', $request->username)->first();
+
+        if (!$user) {
+            return response()->json(['message' => 'Not Exist User'], 200);
         }
-        else
-        {
-            return response()->json(['message' => 'Not Exist User']);
+
+        if ($user->status === 'active') {
+            Process::run("sudo killall -u {$request->username}");
+            Process::run("sudo pkill -u {$request->username}");
+            Process::run("sudo timeout 10 pkill -u {$request->username}");
+            Process::run("sudo timeout 10 killall -u {$request->username}");
+            Process::run("sudo userdel -r {$request->username}");
         }
+
+        Users::where('username', $request->username)->delete();
+        Traffic::where('username', $request->username)->delete();
+
+        return response()->json(['message' => 'User Deleted'], 200);
     }
 
     public function show_detail(Request $request,$token,$username)
@@ -298,8 +297,18 @@ class ApiController extends Controller
             're_traffic' => 'required|string'
         ]);
         $this->checktoken($request->token);
+
         $newdate = date("Y-m-d");
-        $newdate = date('Y-m-d', strtotime($newdate . " + $request->day_date days"));
+
+        if ((int) $request->day_date === 0) {
+            $newdate = null;
+        } else {
+            $newdate = date(
+                'Y-m-d',
+                strtotime($newdate . " + $request->day_date days")
+            );
+        }
+
         $check_user = Users::where('username', $request->username)->count();
         if ($check_user > 0) {
             Users::where('username', $request->username)
