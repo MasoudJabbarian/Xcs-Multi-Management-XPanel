@@ -13,6 +13,7 @@ DB_USER='xcs_admin'
 REPO_URL='https://github.com/MasoudJabbarian/Xcs-Multi-Management-XPanel.git'
 REPO_REF='ubuntu-24-support'
 SOURCE_DIR='/tmp/xcs-panel-source'
+PHP_MAJOR_MINOR='8.1'
 
 if [[ ${EUID} -ne 0 ]]; then
     echo -e "${RED}Please run as root.${ENDCOLOR}" >&2
@@ -20,14 +21,10 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 
 source /etc/os-release
-if [[ ${ID:-} != 'ubuntu' || "${VERSION_ID%%.*}" -lt 24 ]]; then
-    echo -e "${RED}This installer supports Ubuntu 24.04 or newer only.${ENDCOLOR}" >&2
+if [[ ${ID:-} != 'ubuntu' || "${VERSION_ID}" != '22.04' ]]; then
+    echo -e "${RED}This installer is specifically for Ubuntu 22.04.${ENDCOLOR}" >&2
+    echo "Detected: ${PRETTY_NAME:-unknown}" >&2
     exit 1
-fi
-
-PHP_MAJOR_MINOR='8.3'
-if ! command -v php >/dev/null 2>&1 || [[ "$(php -r 'echo PHP_MAJOR_VERSION.".".PHP_MINOR_VERSION;')" != "${PHP_MAJOR_MINOR}" ]]; then
-    echo -e "${YELLOW}PHP ${PHP_MAJOR_MINOR} will be installed/selected.${ENDCOLOR}"
 fi
 
 read -rp 'Panel public IP/hostname: ' PANEL_HOST
@@ -70,14 +67,14 @@ export XCS_FIXER_TOKEN
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y apache2 mariadb-server curl unzip zip git cron openssl ca-certificates composer \
-    php8.3 php8.3-cli php8.3-common php8.3-mysql php8.3-mbstring php8.3-xml php8.3-curl \
-    php8.3-bcmath php8.3-zip php8.3-intl php8.3-gd
+    php8.1 php8.1-cli php8.1-common php8.1-mysql php8.1-mbstring php8.1-xml php8.1-curl \
+    php8.1-bcmath php8.1-zip php8.1-intl php8.1-gd
 
 systemctl enable --now mariadb apache2 cron
 a2enmod rewrite >/dev/null
 
-php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 3 ? 0 : 1);' || {
-    echo -e "${RED}PHP 8.3 is required after package installation.${ENDCOLOR}" >&2
+php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 1 ? 0 : 1);' || {
+    echo -e "${RED}PHP 8.1 is required after package installation.${ENDCOLOR}" >&2
     php -v >&2 || true
     exit 1
 }
@@ -178,7 +175,7 @@ php artisan config:cache
 
 cat <<EOF
 
-************ Xcs Ubuntu 24 ************
+************ Xcs Ubuntu 22.04 ************
 Repository : ${REPO_URL}
 Branch     : ${REPO_REF}
 Xcs Link   : http://${PANEL_HOST}:${PANEL_PORT}/login
