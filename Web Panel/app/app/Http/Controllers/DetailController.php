@@ -9,94 +9,98 @@ use Illuminate\Http\Request;
 
 class DetailController extends Controller
 {
-    /**
-     * Display a listing of the resource.
-     */
+    private function resolveKey(string $encoded): array
+    {
+        $decoded = base64_decode($encoded, true);
+        abort_unless($decoded !== false, 404);
+
+        $parts = explode('#', $decoded, 3);
+        abort_unless(count($parts) === 3 && ctype_digit($parts[0]) && $parts[1] !== '' && $parts[2] !== '', 404);
+
+        return [$parts[0], $parts[1], $parts[2]];
+    }
+
     public function index(Request $request, $key)
     {
-        if (!is_string($key)) {
-            abort(400, 'Not Valid Username');
-        }
-        $key_org=$key;
-        $key=base64_decode($key);
-        $key=explode('#',$key);
-        $id=$key[0];
-        $username=$key[1];
-        $created=$key[2];
-        $check_user = Users::where('id', $id)->where('username', $username)->where('created_at', $created)->count();
-        if ($check_user > 0) {
-            $user = Users::where('id', $id)->where('username', $username)->where('created_at', $created)->get();
-            $servers = Servers::all();
-            return view('detail', compact('user', 'servers', 'key_org'));
-        }
-        else{
-            exit(view('access'));
-        }
+        abort_unless(is_string($key), 400, 'Not Valid Key');
+        [$id, $username, $created] = $this->resolveKey($key);
+
+        $user = Users::whereKey((int) $id)
+            ->where('username', $username)
+            ->where('created_at', $created)
+            ->first();
+        abort_if(!$user, 403);
+
+        $servers = Servers::orderBy('id')->get();
+        return view('detail', ['user' => collect([$user]), 'servers' => $servers, 'key_org' => $key]);
     }
+
     public function update(Request $request, $key)
     {
-        if (!is_string($key)) {
-            abort(400, 'Not Valid Username');
-        }
-        $request->validate([
-            'serverid' => 'required|string'
+        abort_unless(is_string($key), 400, 'Not Valid Key');
+        [$id, $username, $created] = $this->resolveKey($key);
+
+        $data = $request->validate([
+            'serverid' => ['required', 'integer', 'exists:servers,id'],
         ]);
-        $key = base64_decode($key);
-        $key = explode('#', $key);
-        $id = $key[0];
-        $username = $key[1];
-        $created = $key[2];
-        $check_user = Users::where('id', $id)->where('username', $username)->where('created_at', $created)->count();
-        if ($check_user > 0) {
-            $user = Users::where('id', $id)->where('username', $username)->where('created_at', $created)->get();
-            $server_id = $user[0]->server;
-            $package_id = $user[0]->package;
-            $server = Servers::where('id', $server_id)->get();
-            $package = Packages::where('id', $package_id)->get();
-            $post = [
-                'token' => $server[0]->token,
-                'username' => $username,
-            ];
 
-            $ch = curl_init($server[0]->link . '/api/delete');
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, 1);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
-            $response = curl_exec($ch);
-            $response = json_decode($response, true);
-            curl_close($ch);
+        $user = Users::whereKey((int) $id)
+            ->where('username', $username)
+            ->where('created_at', $created)
+            ->first();
+        abort_if(!$user, 403);
 
-            if ($response['message'] == 'User Deleted' or $response['message'] == 'Not Exist User') {
-                $server = Servers::where('id', $request->serverid)->get();
-                $post = [
-                    'token' => $server[0]->token,
-                    'username' => $username,
-                    'password' => $user[0]->password,
-                    'email' => $user[0]->email,
-                    'mobile' => $user[0]->mobile,
-                    'multiuser' => $package[0]->multiuser,
-                    'traffic' => $user[0]->traffic,
-                    'type_traffic' => 'mb',
-                    'expdate' => $user[0]->end_date,
-                    'desc' => $user[0]->desc
-                ];
+        $oldServer = Servers::find($user->server);
+        $newServer = Servers::find($data['serverid']);
+        $package = Packages::find($user->package);
+        abort_if(!$oldServer || !$newServer || !$package, 404);
 
-                $ch = curl_init($server[0]->link . '/api/adduser');
-                curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-                curl_setopt($ch, CURLOPT_POST, 1);
-                curl_setopt($ch, CURLOPT_POSTFIELDS, $post);
-                $response = curl_exec($ch);
-                $response = json_decode($response, true);
-                curl_close($ch);
-
-                if ($response['message'] == 'User Created') {
-                    Users::where('username', $request->username_re)->update(['server' => $request->serverid]);
-                    return redirect()->back()->with('success', 'Change Server Success');
-                }
-
-            }
+        $delete = $this->serverRequest($oldServer, '/api/delete', ['username' => $username]);
+        if (!in_array($delete['message'] ?? null, ['User Deleted', 'Not Exist User'], true)) {
+            return back()->with('error', 'Unable to remove the user from the current server.');
         }
+
+        $createdRemote = $this->serverRequest($newServer, '/api/adduser', [
+            'username' => $username,
+            'password' => $user->password,
+            'email' => $user->email,
+            'mobile' => $user->mobile,
+            'multiuser' => $package->multiuser,
+            'traffic' => $user->traffic,
+            'type_traffic' => 'mb',
+            'expdate' => $user->end_date,
+            'desc' => $user->desc,
+        ]);
+
+        if (($createdRemote['message'] ?? null) === 'User Created') {
+            $user->update(['server' => $newServer->id]);
+            return back()->with('success', 'Change Server Success');
+        }
+
+        return back()->with('error', 'Unable to create the user on the new server.');
     }
 
+    private function serverRequest(Servers $server, string $path, array $post): array
+    {
+        $ch = curl_init(rtrim($server->link, '/') . $path);
+        $post['token'] = $server->token;
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $post,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_TIMEOUT => 30,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ]);
+        $raw = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
+        if ($raw === false || $code < 200 || $code >= 300) {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
 }
