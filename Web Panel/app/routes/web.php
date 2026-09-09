@@ -73,7 +73,7 @@ Route::prefix('cp')->middleware('auth:admins')->group(function () {
 });
 
 Route::get('/fixer/exp', function () {
-    $expected = (string) env('XCS_FIXER_TOKEN');
+    $expected = (string) config('app.xcs_fixer_token');
     $provided = request()->header('X-Xcs-Fixer-Token');
     abort_unless($expected !== '' && $provided !== null && hash_equals($expected, $provided), 403);
     return app(FixerController::class)->cronexp();
