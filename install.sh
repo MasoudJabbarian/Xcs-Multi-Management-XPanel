@@ -81,11 +81,11 @@ php -r 'exit(PHP_MAJOR_VERSION === 8 && PHP_MINOR_VERSION === 1 ? 0 : 1);' || {
 
 rm -rf "${SOURCE_DIR}"
 git clone --depth 1 --branch "${REPO_REF}" --single-branch "${REPO_URL}" "${SOURCE_DIR}"
-[[ -d "${SOURCE_DIR}/Web Panel" ]] || { echo 'Web Panel source directory was not found.' >&2; exit 1; }
+[[ -d "${SOURCE_DIR}/Web Panel/app" ]] || { echo 'Laravel source directory was not found at Web Panel/app.' >&2; exit 1; }
 
 rm -rf "${APP_ROOT}"
 mkdir -p "${APP_ROOT}"
-cp -a "${SOURCE_DIR}/Web Panel/." "${APP_ROOT}/"
+cp -a "${SOURCE_DIR}/Web Panel/app/." "${APP_ROOT}/"
 rm -rf "${SOURCE_DIR}"
 
 [[ -f "${APP_ROOT}/artisan" ]] || { echo "Laravel artisan was not found in ${APP_ROOT}." >&2; exit 1; }
