@@ -86,14 +86,15 @@ git clone --depth 1 --branch "${REPO_REF}" --single-branch "${REPO_URL}" "${SOUR
 rm -rf "${APP_ROOT}"
 mkdir -p "${APP_ROOT}"
 cp -a "${SOURCE_DIR}/Web Panel/app/." "${APP_ROOT}/"
-rm -rf "${SOURCE_DIR}"
 
 [[ -f "${APP_ROOT}/artisan" ]] || { echo "Laravel artisan was not found in ${APP_ROOT}." >&2; exit 1; }
 
 # Apply all validated production fixes, public assets and remote-user sync
-# immediately after the Laravel source is copied to the new server.
+# while the temporary repository checkout still contains Web Panel/cp/assets.
 chmod +x "${APP_ROOT}/install-fixes.sh"
-"${APP_ROOT}/install-fixes.sh" "${APP_ROOT}"
+"${APP_ROOT}/install-fixes.sh" "${APP_ROOT}" "${SOURCE_DIR}/Web Panel/cp/assets"
+
+rm -rf "${SOURCE_DIR}"
 
 mkdir -p "${APP_ROOT}/storage/backup" "${APP_ROOT}/bootstrap/cache"
 
