@@ -5,156 +5,108 @@ namespace App\Http\Controllers;
 use App\Models\Admins;
 use App\Models\TransRess;
 use Illuminate\Http\Request;
-use Auth;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-
 
 class AdminsController extends Controller
 {
-    public function __construct() {
-        $this->middleware('auth:admins');
-
-    }
-    public function check()
+    public function __construct()
     {
-        $user = Auth::user();
-        if($user->permission=='reseller')
-        {
-            exit(view('access'));
-        }
+        $this->middleware('auth:admins');
     }
+
+    private function check(): void
+    {
+        abort_unless(Auth::guard('admins')->user()?->permission === 'admin', 403);
+    }
+
     public function index()
     {
         $this->check();
-        $admins = Admins::where('permission', 'reseller')->orderBy('id', 'desc')->get();
-
+        $admins = Admins::where('permission', 'reseller')->orderByDesc('id')->get();
         return view('admins.index', compact('admins'));
     }
 
     public function insert(Request $request)
     {
         $this->check();
-        $request->validate([
-            'username'=>'required|string',
-            'password'=>'required|string',
-            'credit'=>'required|int',
+        $data = $request->validate([
+            'username' => ['required', 'string', 'max:64', 'regex:/^[A-Za-z0-9._-]+$/', 'unique:admins,username'],
+            'password' => ['required', 'string', 'min:8', 'max:255'],
+            'credit' => ['required', 'numeric', 'min:0'],
         ]);
-        $hashedPassword = Hash::make($request->password);
-        $check_user = Admins::where('username',$request->username)->count();
-        if ($check_user < 1) {
-            Admins::create([
-                'username' => $request->username,
-                'password' => $hashedPassword,
-                'permission' => 'reseller',
-                'credit' => $request->credit,
-                'status' => 'active'
-            ]);
-        }
 
-        return redirect()->intended(route('admins'));
+        Admins::create([
+            'username' => $data['username'],
+            'password' => Hash::make($data['password']),
+            'permission' => 'reseller',
+            'credit' => $data['credit'],
+            'status' => 'active',
+        ]);
+
+        return redirect()->route('admins');
     }
 
-    public function activeadmin(Request $request,$username)
+    public function activeadmin(Request $request, $username)
     {
-        if (!is_string($username)) {
-            abort(400, 'Not Valid Username');
-        }
-        $check_user = Admins::where('username',$username)->count();
-        if ($check_user > 0) {
-            Admins::where('username', $username)
-                ->update(['status' => 'active']);
-        }
-        return redirect()->back()->with('success', 'Activated');
+        $this->check();
+        abort_unless(is_string($username), 400, 'Not Valid Username');
+        Admins::where('username', $username)->where('permission', 'reseller')->update(['status' => 'active']);
+        return back()->with('success', 'Activated');
     }
 
-    public function deactiveadmin(Request $request,$username)
+    public function deactiveadmin(Request $request, $username)
     {
-        if (!is_string($username)) {
-            abort(400, 'Not Valid Username');
-        }
-        $check_user = Admins::where('username',$username)->count();
-        if ($check_user > 0) {
-            Admins::where('username', $username)
-                ->update(['status' => 'deactive']);
-        }
-        return redirect()->back()->with('success', 'Deactivated');
+        $this->check();
+        abort_unless(is_string($username), 400, 'Not Valid Username');
+        Admins::where('username', $username)->where('permission', 'reseller')->update(['status' => 'deactive']);
+        return back()->with('success', 'Deactivated');
     }
 
-    public function deleteadmin(Request $request,$username)
+    public function deleteadmin(Request $request, $username)
     {
-        if (!is_string($username)) {
-            abort(400, 'Not Valid Username');
-        }
-        $check_user = Admins::where('username',$username)->count();
-        if ($check_user > 0) {
-            Admins::where('username', $username)->delete();
-        }
-        return redirect()->back()->with('success', 'Deleted');
+        $this->check();
+        abort_unless(is_string($username), 400, 'Not Valid Username');
+        Admins::where('username', $username)->where('permission', 'reseller')->delete();
+        return back()->with('success', 'Deleted');
     }
 
-    public function edit(Request $request,$username)
+    public function edit(Request $request, $username)
     {
-        if (!is_string($username)) {
-            abort(400, 'Not Valid Username');
-        }
-        $check_user = Admins::where('username',$username)->count();
-        if ($check_user > 0) {
-            $user = Admins::where('username', $username)
-                ->get();
-            $user = $user[0];
-            return view('admins.edit')->with('show', $user);
-        }
-        else
-        {
-            return redirect()->back()->with('success', 'Not User');
-        }
+        $this->check();
+        abort_unless(is_string($username), 400, 'Not Valid Username');
+        $user = Admins::where('username', $username)->where('permission', 'reseller')->firstOrFail();
+        return view('admins.edit')->with('show', $user);
     }
 
     public function update(Request $request)
     {
-        $request->validate([
-            'username' => 'required|string',
-            'password' => 'nullable|string',
-            'credit' => 'required|string'
+        $this->check();
+        $data = $request->validate([
+            'username' => ['required', 'string', 'max:64'],
+            'password' => ['nullable', 'string', 'min:8', 'max:255'],
+            'credit' => ['required', 'numeric', 'min:0'],
         ]);
-        $check_user = Admins::where('username',$request->username)->get();
-        if($check_user[0]->credit<$request->credit)
-        {
 
+        $admin = Admins::where('username', $data['username'])->where('permission', 'reseller')->firstOrFail();
+        $oldCredit = (float) $admin->credit;
+        $newCredit = (float) $data['credit'];
+
+        if ($newCredit !== $oldCredit) {
             TransRess::create([
-                'desc_trans' => 'Increase credit (Admin)',
-                'amount_trans' => $request->credit,
+                'desc_trans' => $newCredit > $oldCredit ? 'Increase credit (Admin)' : 'Credit withdrawal (Admin)',
+                'amount_trans' => abs($newCredit - $oldCredit),
                 'date_time' => time(),
-                'username_trans' => $request->username
+                'username_trans' => $admin->username,
             ]);
-            Admins::where('username', $request->username)->update(['credit' => $request->credit]);
         }
-        if($check_user[0]->credit>$request->credit)
-        {
-            TransRess::create([
-                'desc_trans' => 'Credit withdrawal (Admin)',
-                'amount_trans' => $request->credit,
-                'date_time' => time(),
-                'username_trans' => $request->username
-            ]);
-            Admins::where('username', $request->username)->update(['credit' => $request->credit]);
+
+        $admin->credit = $newCredit;
+        if (!empty($data['password'])) {
+            $admin->password = Hash::make($data['password']);
         }
-        if(!empty($request->password))
-        {
-            $hashedPassword = Hash::make($request->password);
-            Admins::where('username', $request->username)
-                ->where('permission', 'reseller')
-                ->update(['password' => $hashedPassword,'credit' => $request->credit]);
-        }
-        else
-        {
-            Admins::where('username', $request->username)
-                ->where('permission', 'reseller')
-                ->update(['credit' => $request->credit]);
-        }
-        return redirect()->back()->with('success', 'Update Success');
+        $admin->save();
+
+        return back()->with('success', 'Update Success');
     }
-
-
 }
