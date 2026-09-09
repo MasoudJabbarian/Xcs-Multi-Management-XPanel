@@ -11,6 +11,7 @@ class LoginController extends Controller
     public function __construct()
     {
         $this->middleware('guest:admins', ['except' => ['logout']]);
+        $this->middleware('throttle:login')->only('login');
     }
 
     public function showLoginForm()
@@ -21,8 +22,8 @@ class LoginController extends Controller
     public function login(Request $request)
     {
         $credentials = $request->validate([
-            'username' => ['required', 'string'],
-            'password' => ['required', 'string'],
+            'username' => ['required', 'string', 'max:100'],
+            'password' => ['required', 'string', 'max:255'],
         ]);
 
         if (Auth::guard('admins')->attempt([
