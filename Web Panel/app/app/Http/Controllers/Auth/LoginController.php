@@ -4,13 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
-use Auth;
-use Route;
-use App\Models\Admins;
-
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
-
+use Illuminate\Support\Facades\Auth;
 
 class LoginController extends Controller
 {
@@ -21,45 +15,37 @@ class LoginController extends Controller
 
     public function showLoginForm()
     {
-        $pssword= env('DB_PASSWORD');
-        $pssword=Hash::make($pssword);
-        $check_user = Admins::where('username',env('DB_USERNAME'))->count();
-        if ($check_user > 0) {
-            Admins::where('username', env('DB_USERNAME'))->update(['password' => $pssword]);
-        }
-        else
-        {
-            Admins::create([
-                'username' => env('DB_USERNAME'),
-                'password' => $pssword,
-                'permission' => 'admin',
-                'credit' => '0',
-                'status' => 'active'
-            ]);
-        }
         return view('auth.login');
     }
 
     public function login(Request $request)
     {
-
-        // Validate the form data
-        $this->validate($request, [
-            'username'   => 'required',
-            'password' => 'required'
+        $credentials = $request->validate([
+            'username' => ['required', 'string'],
+            'password' => ['required', 'string'],
         ]);
-        // Attempt to log the user in
-        if (Auth::guard('admins')->attempt(['username' => $request->username, 'password' => $request->password,'status'=>'active'])) {
-            // if successful, then redirect to their intended location
+
+        if (Auth::guard('admins')->attempt([
+            'username' => $credentials['username'],
+            'password' => $credentials['password'],
+            'status' => 'active',
+        ], $request->boolean('remember'))) {
+            $request->session()->regenerate();
+
             return redirect()->intended(route('dashboard'));
         }
-        // if unsuccessful, then redirect back to the login with the form data
-        return redirect()->back()->withInput($request->only('username', 'remember'));
+
+        return back()
+            ->withErrors(['username' => 'The provided credentials are incorrect or the account is inactive.'])
+            ->withInput($request->only('username', 'remember'));
     }
 
-    public function logout()
+    public function logout(Request $request)
     {
         Auth::guard('admins')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
         return redirect('/login');
     }
 }
