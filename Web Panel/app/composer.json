@@ -5,7 +5,8 @@
     "keywords": ["laravel", "framework"],
     "license": "MIT",
     "require": {
-        "php": ">=8.1 <8.4",
+        "php": "^8.1",
+        "barryvdh/laravel-debugbar": "^3.8",
         "guzzlehttp/guzzle": "^7.2",
         "laravel/framework": "^10.10",
         "laravel/sanctum": "^3.2",
@@ -14,7 +15,6 @@
         "symfony/process": "^6.3"
     },
     "require-dev": {
-        "barryvdh/laravel-debugbar": "^3.8",
         "fakerphp/faker": "^1.9.1",
         "laravel/pint": "^1.0",
         "laravel/sail": "^1.18",
