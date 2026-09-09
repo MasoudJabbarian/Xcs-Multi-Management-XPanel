@@ -1,305 +1,178 @@
-c#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-RED="\e[31m"
-GREEN="\e[32m"
-YELLOW="\e[33m"
-BLUE="\e[34m"
-CYAN="\e[36m"
-ENDCOLOR="\e[0m"
+RED='\e[31m'
+GREEN='\e[32m'
+YELLOW='\e[33m'
+ENDCOLOR='\e[0m'
 
-if [ "$EUID" -ne 0 ]
-then echo "Please run as root"
-exit
-fi
+APP_ROOT='/var/www/html/app'
+WEB_ROOT='/var/www/html/cp'
+DB_NAME='Xcs'
+DB_HOST='127.0.0.1'
+DB_USER='xcs_admin'
+RELEASE_API='https://api.github.com/repos/xpanel-cp/Xcs-Multi-Management-XPanel/releases/tags/xcsv1-0'
 
-checkOS() {
-  # List of supported distributions
-  #supported_distros=("Ubuntu" "Debian" "Fedora" "CentOS" "Arch")
-  supported_distros=("Ubuntu")
-  # Get the distribution name and version
-  if [[ -f "/etc/os-release" ]]; then
-    source "/etc/os-release"
-    distro_name=$NAME
-    distro_version=$VERSION_ID
-  else
-    echo "Unable to determine distribution."
+if [[ ${EUID} -ne 0 ]]; then
+    echo -e "${RED}Please run as root.${ENDCOLOR}" >&2
     exit 1
-  fi
-  # Check if the distribution is supported
-  if [[ " ${supported_distros[@]} " =~ " ${distro_name} " ]]; then
-    echo "Your Linux distribution is ${distro_name} ${distro_version}"
-    : #no-op command
-  else
-    # Print error message in red
-    echo -e "\e[31mYour Linux distribution (${distro_name} ${distro_version}) is not currently supported.\e[0m"
+fi
+
+source /etc/os-release
+if [[ ${ID:-} != 'ubuntu' ]]; then
+    echo -e "${RED}This installer supports Ubuntu only (detected: ${PRETTY_NAME:-unknown}).${ENDCOLOR}" >&2
     exit 1
-  fi
-
-  # This script only works on Ubuntu 20 and above
-  if [ "$(uname)" == "Linux" ]; then
-    version_info=$(lsb_release -rs | cut -d '.' -f 1)
-    # Check if it's Ubuntu and version is below 20
-    if [ "$(lsb_release -is)" == "Ubuntu" ] && [ "$version_info" -lt 20 ]; then
-      echo "This script only works on Ubuntu 20 and above"
-      exit
-    fi
-  fi
-}
-checkOS
-
-adminuser=$(mysql -N -e "use Xcs; select username from admins where permission='admin';")
-adminpass=$(mysql -N -e "use Xcs; select username from admins where permission='admin';")
-clear
-echo -e "${YELLOW}************ Select Xcs Version ************"
-echo -e "${GREEN}  1)Xcs v 1.0"
-echo -ne "${GREEN}\nSelect Version : ${ENDCOLOR}" ;read n
-if [ "$n" != "" ]; then
-if [ "$n" == "1" ]; then
-linkd=https://api.github.com/repos/xpanel-cp/Xcs-Multi-Management-XPanel/releases/tags/xcsv1-0
-fi
-else
-linkd=https://api.github.com/repos/xpanel-cp/Xcs-Multi-Management-XPanel/releases/tags/xcsv1-0
 fi
 
-echo -e "\nPlease input IP Server"
-printf "IP: "
-read ip
-if [ -n "$ip" -a "$ip" == " " ]; then
-echo -e "\nPlease input IP Server"
-printf "IP: "
-read ip
-fi
-adminusername=admin
-echo -e "\nPlease input Panel admin user."
-printf "Default user name is \e[33m${adminusername}\e[0m, let it blank to use this user name: "
-read usernametmp
-if [[ -n "${usernametmp}" ]]; then
-adminusername=${usernametmp}
-fi
-adminpassword=123456
-echo -e "\nPlease input Panel admin password."
-printf "Default password is \e[33m${adminpassword}\e[0m, let it blank to use this password : "
-read passwordtmp
-if [[ -n "${passwordtmp}" ]]; then
-adminpassword=${passwordtmp}
+if [[ "${VERSION_ID%%.*}" -lt 24 ]]; then
+    echo -e "${RED}This branch targets Ubuntu 24.04 or newer.${ENDCOLOR}" >&2
+    exit 1
 fi
 
-ipv4=$ip
-
-if command -v apt-get >/dev/null; then
-
-sudo NEETRESTART_MODE=a apt-get update --yes
-sudo apt-get -y install software-properties-common
-apt-get install -y stunnel4 && apt-get install -y cmake && apt-get install -y screenfetch && apt-get install -y openssl
-sudo apt-get -y install software-properties-common
-sudo add-apt-repository ppa:ondrej/php -y
-apt-get install apache2 zip unzip net-tools curl mariadb-server -y
-apt-get install php php-cli php-mbstring php-dom php-pdo php-mysql -y
-apt-get install npm -y
-sudo apt-get install coreutils
-wait
-phpv=$(php -v)
-if [[ $phpv == *"8.1"* ]]; then
-
-apt autoremove -y
-  echo "PHP Is Installed :)"
-else
-rm -fr /etc/php/7.4/apache2/conf.d/00-ioncube.ini
-sudo apt-get purge '^php7.*' -y
-apt remove php* -y
-apt remove php -y
-apt autoremove -y
-apt install php8.1 php8.1-mysql php8.1-xml php8.1-curl cron -y
-fi
-curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer    
-
-link=$(sudo curl -Ls "$linkd" | grep '"browser_download_url":' | sed -E 's/.*"([^"]+)".*/\1/')
-sudo wget -O /var/www/html/update.zip $link
-sudo unzip -o /var/www/html/update.zip -d /var/www/html/ &
-wait
-echo 'www-data ALL=(ALL:ALL) NOPASSWD:/usr/bin/curl' | sudo EDITOR='tee -a' visudo &
-wait
-echo 'www-data ALL=(ALL:ALL) NOPASSWD:/usr/bin/crontab' | sudo EDITOR='tee -a' visudo &
-wait
-echo 'www-data ALL=(ALL:ALL) NOPASSWD:/usr/bin/mysqldump' | sudo EDITOR='tee -a' visudo &
-wait
-sudo a2enmod rewrite
-wait
-sudo service apache2 restart
-wait
-sudo systemctl restart apache2
-wait
-sudo service apache2 restart
-wait
-sudo sed -i "s/AllowOverride None/AllowOverride All/g" /etc/apache2/apache2.conf &
-wait
-sudo service apache2 restart
-wait
-clear
-# Random port number generator to prevent xcs detection by potential attackers
-randomPort=""
-# Check if $RANDOM is available in the shell
-if [ -z "$RANDOM" ]; then
-  # If $RANDOM is not available, use a different random number generation method
-  random_number=$(od -A n -t d -N 2 /dev/urandom | tr -d ' ')
-else
-  # Generate a random number between 0 and 63000 using $RANDOM
-  random_number=$((RANDOM % 63001))
+read -rp 'Panel public IP/hostname: ' PANEL_HOST
+if [[ -z "${PANEL_HOST}" ]]; then
+    echo -e "${RED}Panel IP/hostname is required.${ENDCOLOR}" >&2
+    exit 1
 fi
 
-# Add 2000 to the random number to get a range between 2000 and 65000
-randomPort=$((random_number + 2000))
-
-# Use port 8081 if the random_number is zero (in case $RANDOM was not available and port 8081 was chosen)
-if [ "$random_number" -eq 0 ]; then
-  randomPort=8081
+read -rp 'Panel admin username [admin]: ' ADMIN_USERNAME
+ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+read -rsp 'Panel admin password [leave blank for a random password]: ' ADMIN_PASSWORD
+printf '\n'
+if [[ -z "${ADMIN_PASSWORD}" ]]; then
+    ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 16)
 fi
 
-
-echo -e "\nPlease input Panel admin Port, or leave blank to use randomly generated port"
-printf "Random port \033[33m$randomPort:\033[0m "
-read porttmp
-if [[ -n "${porttmp}" ]]; then
-#Get the server port number from my settings file
-serverPort=${porttmp}
-echo $serverPort
-else
-serverPort=$randomPort
-echo $serverPort
+read -rp 'Panel port [random]: ' PANEL_PORT
+if [[ -z "${PANEL_PORT}" ]]; then
+    while :; do
+        PANEL_PORT=$(shuf -i 10000-60000 -n 1)
+        if ! ss -ltnH | awk '{print $4}' | grep -Eq ":${PANEL_PORT}$"; then
+            break
+        fi
+    done
 fi
-##Get just the port number from the settings variable I just grabbed
-serverPort=${serverPort##*=}
-##Remove the "" marks from the variable as they will not be needed
-serverPort=${serverPort//'"'}
-echo "<VirtualHost *:80>
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/html/example
-    ErrorLog /error.log
-    CustomLog /access.log combined
-    <Directory '/var/www/html/example'>
-    AllowOverride All
-    </Directory>
-</VirtualHost>
+if ! [[ ${PANEL_PORT} =~ ^[0-9]+$ ]] || (( PANEL_PORT < 1024 || PANEL_PORT > 65535 )); then
+    echo -e "${RED}Invalid panel port.${ENDCOLOR}" >&2
+    exit 1
+fi
 
-<VirtualHost *:$serverPort>
-    # The ServerName directive sets the request scheme, hostname and port that
-    # the server uses to identify itself. This is used when creating
-    # redirection URLs. In the context of virtual hosts, the ServerName
-    # specifies what hostname must appear in the request's Host: header to
-    # match this virtual host. For the default virtual host (this file) this
-    # value is not decisive as it is used as a last resort host regardless.
-    # However, you must set it for any further virtual host explicitly.
-    #ServerName www.example.com
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y apache2 mariadb-server curl unzip zip git cron openssl ca-certificates composer php8.3 php8.3-cli php8.3-common php8.3-mysql php8.3-mbstring php8.3-xml php8.3-curl php8.3-bcmath php8.3-zip php8.3-intl
 
-    ServerAdmin webmaster@localhost
-    DocumentRoot /var/www/html/cp
+systemctl enable --now mariadb apache2 cron
 
-    # Available loglevels: trace8, ..., trace1, debug, info, notice, warn,
-    # error, crit, alert, emerg.
-    # It is also possible to configure the loglevel for particular
-    # modules, e.g.
-    #LogLevel info ssl:warn
+a2enmod rewrite >/dev/null
 
-    ErrorLog ${APACHE_LOG_DIR}/error.log
-    CustomLog ${APACHE_LOG_DIR}/access.log combined
+if [[ ! -d "${APP_ROOT}" ]]; then
+    mkdir -p "${APP_ROOT}"
+fi
+if [[ ! -d "${WEB_ROOT}" ]]; then
+    mkdir -p "${WEB_ROOT}"
+fi
 
-    # For most configuration files from conf-available/, which are
-    # enabled or disabled at a global level, it is possible to
-    # include a line for only one particular virtual host. For example the
-    # following line enables the CGI configuration for this host only
-    # after it has been globally disabled with "a2disconf".
-    #Include conf-available/serve-cgi-bin.conf
-    <Directory '/var/www/html/cp'>
-    AllowOverride All
+# If the release archive is available, install the application without assuming
+# an Ubuntu-specific PHP version or Apache service name.
+RELEASE_URL=$(curl -fsSL "${RELEASE_API}" | grep -m1 '"browser_download_url"' | sed -E 's/.*"browser_download_url": "([^"]+)".*/\1/')
+if [[ -z "${RELEASE_URL}" ]]; then
+    echo -e "${RED}Unable to determine the Xcs release download URL.${ENDCOLOR}" >&2
+    exit 1
+fi
+curl -fL "${RELEASE_URL}" -o /tmp/xcs-update.zip
+unzip -oq /tmp/xcs-update.zip -d /var/www/html
+rm -f /tmp/xcs-update.zip
+
+# Create a least-privilege database account. The installer no longer grants
+# ALL PRIVILEGES ON *.* to the panel user.
+mysql <<SQL
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '$(printf '%s' "${ADMIN_PASSWORD}" | sed "s/'/''/g")';
+ALTER USER '${DB_USER}'@'${DB_HOST}' IDENTIFIED BY '$(printf '%s' "${ADMIN_PASSWORD}" | sed "s/'/''/g")';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'${DB_HOST}';
+FLUSH PRIVILEGES;
+SQL
+
+cd "${APP_ROOT}"
+
+if [[ ! -f .env ]]; then
+    cp .env.example .env
+fi
+
+php artisan key:generate --force
+php artisan config:clear
+php artisan cache:clear || true
+
+php -r '
+$path = ".env";
+$env = file_get_contents($path);
+$set = function (&$env, $key, $value) {
+    $quoted = str_replace("\\", "\\\\", $value);
+    $quoted = str_replace("\"", "\\\"", $quoted);
+    if (preg_match("/^" . preg_quote($key, "/") . "=/m", $env)) {
+        $env = preg_replace("/^" . preg_quote($key, "/") . ".*$/m", $key . "=\"" . $quoted . "\"", $env);
+    } else {
+        $env .= "\\n" . $key . "=\"" . $quoted . "\"\\n";
+    }
+};
+$set($env, "APP_ENV", "production");
+$set($env, "APP_DEBUG", "false");
+$set($env, "APP_URL", "http://' . addslashes($PANEL_HOST) . ':' . (int)$PANEL_PORT . '");
+$set($env, "DB_CONNECTION", "mysql");
+$set($env, "DB_HOST", "' . addslashes($DB_HOST) . '");
+$set($env, "DB_DATABASE", "' . addslashes($DB_NAME) . '");
+$set($env, "DB_USERNAME", "' . addslashes($DB_USER) . '");
+$set($env, "DB_PASSWORD", "' . addslashes($ADMIN_PASSWORD) . '");
+file_put_contents($path, $env);
+'
+
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+php artisan migrate --force
+
+# Seed/update the initial administrator using Laravel hashing rather than
+# storing the password in plaintext in SQL.
+php artisan tinker --execute="\App\Models\Admins::updateOrCreate(['username' => '${ADMIN_USERNAME}'], ['password' => '${ADMIN_PASSWORD}', 'permission' => 'admin', 'credit' => '0', 'status' => 'active']);"
+
+# Apache 2.4 configuration. NameVirtualHost/httpd are intentionally not used.
+cat > /etc/apache2/sites-available/xcs.conf <<APACHE
+Listen ${PANEL_PORT}
+
+<VirtualHost *:${PANEL_PORT}>
+    ServerName ${PANEL_HOST}
+    DocumentRoot ${APP_ROOT}/public
+
+    <Directory ${APP_ROOT}/public>
+        AllowOverride All
+        Require all granted
     </Directory>
 
+    ErrorLog \${APACHE_LOG_DIR}/xcs-error.log
+    CustomLog \${APACHE_LOG_DIR}/xcs-access.log combined
 </VirtualHost>
+APACHE
 
-# vim: syntax=apache ts=4 sw=4 sts=4 sr noet" > /etc/apache2/sites-available/000-default.conf
-wait
-##Replace 'Virtual Hosts' and 'List' entries with the new port number
-sudo  sed -i.bak 's/.*NameVirtualHost.*/NameVirtualHost *:'$serverPort'/' /etc/apache2/ports.conf
-echo "Listen 80
-Listen $serverPort
-<IfModule ssl_module>
-    Listen $serverPort
-    Listen 443
-</IfModule>
+a2dissite 000-default.conf >/dev/null 2>&1 || true
+a2ensite xcs.conf >/dev/null
+apache2ctl configtest
+systemctl reload apache2
 
-<IfModule mod_gnutls.c>
-    Listen $serverPort
-    Listen 443
-</IfModule>" > /etc/apache2/ports.conf
-wait
-##Restart the apache server to use new port
-sudo /etc/init.d/apache2 reload
-sudo service apache2 restart
-chown www-data:www-data /var/www/html/cp/* &
-wait
-systemctl restart mariadb &
-wait
-systemctl enable mariadb &
-wait
-sudo phpenmod curl
-PHP_INI=$(php -i | grep /.+/php.ini -oE)
-sed -i 's/extension=intl/;extension=intl/' ${PHP_INI}
+# Laravel needs write access only to storage and bootstrap/cache.
+chown -R www-data:www-data "${APP_ROOT}/storage" "${APP_ROOT}/bootstrap/cache"
+chmod -R ug+rwX "${APP_ROOT}/storage" "${APP_ROOT}/bootstrap/cache"
 
-systemctl restart httpd
-systemctl enable httpd
-fi
-mysql -e "create database Xcs;" &
-wait
-mysql -e "CREATE USER '${adminusername}'@'localhost' IDENTIFIED BY '${adminpassword}';" &
-wait
-mysql -e "GRANT ALL ON *.* TO '${adminusername}'@'localhost';" &
-wait
-mysql -e "ALTER USER '${adminusername}'@'localhost' IDENTIFIED BY '${adminpassword}';" &
-wait
-sed -i "s/DB_USERNAME=.*/DB_USERNAME=$adminusername/g" /var/www/html/app/.env
-sed -i "s/DB_PASSWORD=.*/DB_PASSWORD=$adminpassword/g" /var/www/html/app/.env
-cd /var/www/html/app
-php artisan migrate
-if [ -n "$adminuser" -a "$adminuser" != "NULL" ]
-then
- mysql -e "USE Xcs; UPDATE admins SET username = '${adminusername}' where permission='admin';"
- mysql -e "USE Xcs; UPDATE admins SET password = '${adminpassword}' where permission='admin';"
- mysql -e "USE Xcs; UPDATE settings SET ssh_port = '1' where id='1';"
-else
-mysql -e "USE Xcs; INSERT INTO admins (username, password, permission, credit, status) VALUES ('${adminusername}', '${adminpassword}', 'admin', '', 'active');"
-mysql -e "USE Xcs; INSERT INTO settings (ssh_port, tls_port, t_token, t_id, language, multiuser, ststus_multiuser, home_url) VALUES ('1', '1', '', '', '', 'active', '', 'localhost');"
-fi
-sudo chown -R www-data:www-data /var/www/html/app
-crontab -r
-wait
-multiin=$(echo "http://${ipv4}:$serverPort/fixer/exp")
-cat > /var/www/html/cron.sh << ENDOFFILE
-#!/bin/bash
-#By Alireza
-i=0
-while [ 1i -lt 20 ]; do
-cmd=(bbh '$multiin')
-echo cmd &
-sleep 30
-i=(( i + 1 ))
-done
-ENDOFFILE
-wait
-sudo sed -i 's/(bbh/$(curl -v -H "A: B"/' /var/www/html/cron.sh
-wait
-sudo sed -i 's/cmd/$cmd/' /var/www/html/cron.sh
-wait
-sudo sed -i 's/1i/$i/' /var/www/html/cron.sh
-wait
-sudo sed -i 's/((/$((/' /var/www/html/cron.sh
-wait
-chmod +x /var/www/html/cron.sh
-wait
-(crontab -l | grep . ; echo -e "* * * * * /var/www/html/cron.sh") | crontab -
-wait
-chown www-data:www-data /var/www/html/example/index.php
-clear
+# Use a dedicated cron entry; never erase the root user's existing crontab.
+CRON_LINE="* * * * * cd ${APP_ROOT} && php artisan schedule:run >> /dev/null 2>&1"
+( crontab -l 2>/dev/null | grep -Fv "${APP_ROOT} && php artisan schedule:run" || true; echo "${CRON_LINE}" ) | crontab -
 
-echo -e "************ Xcs ************ \n"
-echo -e "Xcs Link : http://${ipv4}:$serverPort/login"
-echo -e "Username : ${adminusername}"
-echo -e "Password : ${adminpassword}"
+rm -f /var/www/html/update.zip
+php artisan optimize:clear
+
+cat <<EOF
+
+************ Xcs Ubuntu 24 ************
+Xcs Link : http://${PANEL_HOST}:${PANEL_PORT}/login
+Username : ${ADMIN_USERNAME}
+Password : ${ADMIN_PASSWORD}
+
+Installation completed successfully.
+EOF
