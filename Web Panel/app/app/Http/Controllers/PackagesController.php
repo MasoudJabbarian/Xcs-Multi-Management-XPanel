@@ -34,7 +34,7 @@ class PackagesController extends Controller
         $data = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0'],
-            'day' => ['required', 'integer', 'min:1'],
+            'day' => ['required', 'integer', 'min:0'],
             'multi' => ['required', 'string', 'max:50'],
             'serverid' => ['required', 'integer', 'exists:servers,id'],
             'multiuser' => ['required', 'integer', 'min:1'],
@@ -71,7 +71,7 @@ class PackagesController extends Controller
             'id' => ['required', 'integer', 'exists:packages,id'],
             'title' => ['required', 'string', 'max:255'],
             'amount' => ['required', 'numeric', 'min:0'],
-            'day' => ['required', 'integer', 'min:1'],
+            'day' => ['required', 'integer', 'min:0'],
             'multi' => ['required', 'string', 'max:50'],
             'serverid' => ['required', 'integer', 'exists:servers,id'],
             'multiuser' => ['required', 'integer', 'min:1'],
