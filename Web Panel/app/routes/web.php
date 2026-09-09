@@ -13,6 +13,7 @@ use App\Http\Controllers\FixerController;
 use App\Http\Controllers\PackagesController;
 use App\Http\Controllers\DetailController;
 use App\Http\Controllers\TransresController;
+use Illuminate\Http\Request;
 
 Route::get('/', function () {
     return redirect('/login');
@@ -72,8 +73,8 @@ Route::prefix('cp')->middleware('auth:admins')->group(function () {
     Route::get('/logout', [LoginController::class, 'logout'])->name('user.logout');
 });
 
-Route::prefix('fixer')->group(function () {
-    Route::get('/exp', [FixerController::class, 'cronexp'])->name('exp');
-});
+Route::get('/fixer/exp', [FixerController::class, 'cronexp'])
+    ->middleware('throttle:5,1')
+    ->name('exp');
 
 Auth::routes();
