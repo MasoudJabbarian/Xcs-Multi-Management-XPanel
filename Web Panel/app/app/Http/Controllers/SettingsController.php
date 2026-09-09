@@ -5,340 +5,278 @@ namespace App\Http\Controllers;
 use App\Models\Users;
 use App\Models\Admins;
 use App\Models\Api;
-use Illuminate\Http\Request;
-use Auth;
 use App\Models\Settings;
 use App\Models\Traffic;
 use App\Models\Servers;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
-use MongoDB\Driver\Server;
-use Symfony\Component\HttpFoundation\ResponseHeaderBag;
-use Illuminate\Support\Process\ProcessResult;
+use Illuminate\Support\Str;
 
 class SettingsController extends Controller
 {
-    public function __construct() {
-        $this->middleware('auth:admins');
-
-    }
-    public function check()
+    public function __construct()
     {
-        $user = Auth::user();
-        $check_admin = Admins::where('id', $user->id)->get();
-        if($check_admin[0]->permission=='reseller')
-        {
-            exit(view('access'));
-        }
+        $this->middleware('auth:admins');
     }
+
+    private function check(): void
+    {
+        abort_unless(Auth::guard('admins')->user()?->permission === 'admin', 403);
+    }
+
     public function defualt()
     {
         $this->check();
-        return redirect()->intended(route('settings', ['name' => 'server']));
+        return redirect()->route('settings', ['name' => 'server']);
     }
-    public function index(Request $request,$name)
+
+    public function index(Request $request, $name)
     {
         $this->check();
-        if (!is_string($name)) {
-            abort(400, 'Not Valid Username');
-        }
-        $setting = Settings::all();
-        $apis =Api::all();
-        if($name=='server') {
-            $servers=Servers::all();
-            return view('settings.index', compact('servers'));}
+        abort_unless(is_string($name) && in_array($name, ['server', 'backup', 'api', 'block', 'fakeaddress', 'wordpress'], true), 404);
 
-        if($name=='backup') {
-            $list = Process::run("ls /var/www/html/app/storage/backup");
-            $output = $list->output();
-            $backuplist = preg_split("/\r\n|\n|\r/", $output);
-            $lists=$backuplist;
+        if ($name === 'server') {
+            $servers = Servers::orderBy('id')->get();
+            return view('settings.index', compact('servers'));
+        }
+
+        if ($name === 'backup') {
+            $lists = collect(Storage::files('backup'))
+                ->map(fn ($path) => basename($path))
+                ->sort()
+                ->values()
+                ->all();
             return view('settings.backup', compact('lists'));
         }
-        if($name=='api') {
-            $apis=$apis;
-            return view('settings.api', compact('apis'));}
-        if($name=='block') {
-            $check_status = Process::run("sudo iptables -L OUTPUT");
-            $output = $check_status->output();
-            $output = preg_split("/\r\n|\n|\r/", $output);
-            $output = count($output) - 3;
-            $status=$output;
-            return view('settings.block', compact('status'));
-        }
-        if($name=='fakeaddress') {return view('settings.fake');}
-        if($name=='wordpress') {
-            $protocol = isset($_SERVER['HTTPS']) ? 'https' : 'http';
-            $http_host=$_SERVER['HTTP_HOST'];
-            $output=$http_host.'/';
-            $output=explode(':',$output);
-            $output=$protocol.'://'.$output[0];
-            $address=$output;
-            return view('settings.wordpress', compact('address'));
+
+        if ($name === 'api') {
+            $apis = Api::orderByDesc('id')->get();
+            return view('settings.api', compact('apis'));
         }
 
+        if ($name === 'block') {
+            $status = (int) Process::run(['iptables', '-L', 'OUTPUT'])->successful();
+            return view('settings.block', compact('status'));
+        }
+
+        if ($name === 'fakeaddress') {
+            return view('settings.fake');
+        }
+
+        $host = request()->getHost();
+        $protocol = request()->secure() ? 'https' : 'http';
+        $address = $protocol . '://' . $host;
+        return view('settings.wordpress', compact('address'));
     }
+
     public function add_server(Request $request)
     {
         $this->check();
-        $request->validate([
-            'link'=>'required|string',
-            'token'=>'required|string',
-            'name'=>'required|string',
-            'port'=>'required|string',
-            'port_tls'=>'required|string'
+        $data = $request->validate([
+            'link' => ['required', 'url', 'max:2048'],
+            'token' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255'],
+            'port' => ['required', 'integer', 'between:1,65535'],
+            'port_tls' => ['required', 'integer', 'between:1,65535'],
         ]);
         Servers::create([
-            'link' => $request->link,
-            'token' => $request->token,
-            'name' => $request->name,
-            'port_connection' => $request->port,
-            'port_connection_tls' => $request->port_tls,
+            'link' => rtrim($data['link'], '/'),
+            'token' => $data['token'],
+            'name' => $data['name'],
+            'port_connection' => $data['port'],
+            'port_connection_tls' => $data['port_tls'],
         ]);
-        return redirect()->intended(route('settings', ['name' => 'server']));
+        return redirect()->route('settings', ['name' => 'server']);
     }
+
     public function edit_server(Request $request, $id)
     {
         $this->check();
-        if (!is_numeric($id)) {
-            abort(400, 'Not Valid ID');
-        }
-        $server = Servers::where('id', $id)->get();
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        $server = Servers::whereKey((int) $id)->get();
+        abort_if($server->isEmpty(), 404);
         return view('settings.edit.server', compact('server'));
     }
 
     public function update_server(Request $request)
     {
         $this->check();
-        $request->validate([
-            'id'=>'required|int',
-            'link'=>'required|string',
-            'token'=>'required|string',
-            'name'=>'required|string',
-            'port'=>'required|string',
-            'port_tls'=>'required|string'
+        $data = $request->validate([
+            'id' => ['required', 'integer', 'exists:servers,id'],
+            'link' => ['required', 'url', 'max:2048'],
+            'token' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'max:255'],
+            'port' => ['required', 'integer', 'between:1,65535'],
+            'port_tls' => ['required', 'integer', 'between:1,65535'],
         ]);
-        Servers::where('id', $request->id)->update([
-            'link' => $request->link,
-            'token' => $request->token,
-            'name' => $request->name,
-            'port_connection' => $request->port,
-            'port_connection_tls' => $request->port_tls,
+        Servers::whereKey($data['id'])->update([
+            'link' => rtrim($data['link'], '/'),
+            'token' => $data['token'],
+            'name' => $data['name'],
+            'port_connection' => $data['port'],
+            'port_connection_tls' => $data['port_tls'],
         ]);
-        return redirect()->intended(route('settings', ['name' => 'server']));
+        return redirect()->route('settings', ['name' => 'server']);
     }
-    public function delete_server(Request $request,$id)
+
+    public function delete_server(Request $request, $id)
     {
         $this->check();
-        if (!is_numeric($id)) {
-            abort(400, 'Not Valid Username');
-        }
-        Servers::where('id', $id)->delete();
-        return redirect()->intended(route('settings', ['name' => 'server']));
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        Servers::whereKey((int) $id)->delete();
+        return redirect()->route('settings', ['name' => 'server']);
     }
 
     public function update_telegram(Request $request)
     {
         $this->check();
-        $request->validate([
-            'tokenbot'=>'required|string',
-            'idtelegram'=>'required|string'
+        $data = $request->validate([
+            'tokenbot' => ['required', 'string', 'max:255'],
+            'idtelegram' => ['required', 'string', 'max:255'],
         ]);
-        $check_setting = Settings::where('id','1')->count();
-        if ($check_setting > 0) {
-            Settings::where('id', 1)->update(['t_token' => $request->tokenbot,'t_id' => $request->idtelegram]);
-        } else {
-            Settings::create([
-                't_token' => $request->tokenbot,'t_id' => $request->idtelegram
-            ]);
-        }
-        return redirect()->intended(route('settings', ['name' => 'telegram']));
+        Settings::updateOrCreate(['id' => 1], [
+            't_token' => $data['tokenbot'],
+            't_id' => $data['idtelegram'],
+        ]);
+        return redirect()->route('settings', ['name' => 'telegram']);
     }
-
 
     public function upload_backup(Request $request)
     {
         $this->check();
         $request->validate([
-            'file'=>'required|mimetypes:text/plain'
+            'file' => ['required', 'file', 'mimetypes:text/plain,application/sql', 'max:51200'],
         ]);
-        if($request->file('file')) {
-            $file = $request->file('file');
-            $filename = $file->getClientOriginalName();
-            $file->move('/var/www/html/app/storage/backup/', $filename);
 
-        }
-        return redirect()->intended(route('settings', ['name' => 'backup']));
+        $request->file('file')->storeAs('backup', Str::uuid() . '.sql');
+        return redirect()->route('settings', ['name' => 'backup']);
     }
 
-    public function delete_backup(Request $request,$name)
+    private function backupPath(string $name): string
     {
-        $this->check();
-        if (!is_string($name)) {
-            abort(400, 'Not Valid Username');
-        }
-        Process::run("rm -rf /var/www/html/app/storage/backup/".$name);
-        return redirect()->intended(route('settings', ['name' => 'backup']));
-
+        abort_unless($name === basename($name) && preg_match('/^[A-Za-z0-9._-]+$/', $name), 400, 'Invalid backup name');
+        $path = storage_path('app/backup/' . $name);
+        abort_unless(is_file($path), 404);
+        return $path;
     }
 
-    public function restore_backup(Request $request,$name)
+    public function delete_backup(Request $request, $name)
     {
         $this->check();
-        if (!is_string($name)) {
-            abort(400, 'Not Valid Username');
-        }
-        Process::run("mysql -u '" .env('DB_USERNAME'). "' --password='" .env('DB_PASSWORD'). "' Xcs < /var/www/html/app/storage/backup/".$name);
-        $users =Users::all();
-        foreach ($users as $user) {
-            Process::run("sudo adduser --disabled-password --gecos '' --shell /usr/sbin/nologin {$user->username}");
-            Process::input($user->password."\n".$user->password."\n")->timeout(120)->run("sudo passwd {$user->username}");
-            $check_traffic =Traffic::where('username', $user->username)->count();
-            if ($check_traffic < 1) {
+        $path = $this->backupPath((string) $name);
+        unlink($path);
+        return redirect()->route('settings', ['name' => 'backup']);
+    }
+
+    public function restore_backup(Request $request, $name)
+    {
+        $this->check();
+        $path = $this->backupPath((string) $name);
+        $sql = file_get_contents($path);
+        abort_if($sql === false, 500, 'Unable to read backup');
+
+        $result = Process::input($sql)
+            ->env(['MYSQL_PWD' => (string) env('DB_PASSWORD')])
+            ->timeout(120)
+            ->run(['mysql', '-u', (string) env('DB_USERNAME'), (string) env('DB_DATABASE', 'Xcs')]);
+
+        abort_unless($result->successful(), 500, 'Database restore failed');
+
+        foreach (Users::all() as $user) {
+            if (!Traffic::where('username', $user->username)->exists()) {
                 Traffic::create([
                     'username' => $user->username,
-                    'download' => '0',
-                    'upload' => '0',
-                    'total' => '0'
+                    'download' => 0,
+                    'upload' => 0,
+                    'total' => 0,
                 ]);
             }
         }
-        return redirect()->intended(route('settings', ['name' => 'backup']));
 
+        return redirect()->route('settings', ['name' => 'backup']);
     }
 
     public function make_backup()
     {
         $this->check();
-        $date = date("Y-m-d---h-i-s");
-        Process::run("mysqldump -u '" .env('DB_USERNAME'). "' --password='" .env('DB_PASSWORD'). "' XPanel_plus > /var/www/html/app/storage/backup/Xcs-".$date.".sql");
-        return redirect()->intended(route('settings', ['name' => 'backup']));
+        $date = now()->format('Y-m-d---H-i-s');
+        $result = Process::env(['MYSQL_PWD' => (string) env('DB_PASSWORD')])
+            ->timeout(120)
+            ->run(['mysqldump', '-u', (string) env('DB_USERNAME'), (string) env('DB_DATABASE', 'Xcs')]);
+        abort_unless($result->successful(), 500, 'Database backup failed');
+
+        Storage::put('backup/Xcs-' . $date . '.sql', $result->output());
+        return redirect()->route('settings', ['name' => 'backup']);
     }
-    public function download_backup(Request $request,$name)
+
+    public function download_backup(Request $request, $name)
     {
         $this->check();
-        if (!is_string($name)) {
-            abort(400, 'Not Valid Username');
-        }
-        $fileName = $name;
-        $filePath = storage_path('backup/'.$fileName);
-
-        if (file_exists('/var/www/html/app/storage/backup/'.$fileName)) {
-            return response()->download($filePath, $fileName, [
-                'Content-Type' => 'text/plain',
-                'Content-Disposition' => 'attachment',
-            ])->deleteFileAfterSend(true);
-        }
-
-        abort(404);
-        return redirect()->intended(route('settings', ['name' => 'backup']));
+        $path = $this->backupPath((string) $name);
+        return response()->download($path, basename($path), ['Content-Type' => 'application/sql']);
     }
 
     public function insert_api(Request $request)
     {
         $this->check();
-        $user = Auth::user();
-        $chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
-        $token = substr(str_shuffle($chars), 0, 15);
-        $request->validate([
-            'desc'=>'required|string',
-            'allowip'=>'required|string'
+        $user = Auth::guard('admins')->user();
+        $data = $request->validate([
+            'desc' => ['required', 'string', 'max:255'],
+            'allowip' => ['required', 'string', 'max:255'],
         ]);
         Api::create([
             'username' => $user->username,
-            'token' => time().$token,
-            'description' => $request->desc,
-            'allow_ip' => $request->allowip,
-            'status' => 'active'
+            'token' => time() . Str::upper(Str::random(30)),
+            'description' => $data['desc'],
+            'allow_ip' => $data['allowip'],
+            'status' => 'active',
         ]);
-        return redirect()->intended(route('settings', ['name' => 'api']));
+        return redirect()->route('settings', ['name' => 'api']);
     }
 
-    public function renew_api(Request $request,$id)
+    public function renew_api(Request $request, $id)
     {
         $this->check();
-        if (!is_numeric($id)) {
-            abort(400, 'Not Valid Username');
-        }
-        $chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890";
-        $token_new = substr(str_shuffle($chars), 0, 15);
-        Api::where('id', $id)->update(['token' => time().$token_new]);
-        return redirect()->intended(route('settings', ['name' => 'api']));
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        Api::whereKey((int) $id)->update(['token' => time() . Str::upper(Str::random(30))]);
+        return redirect()->route('settings', ['name' => 'api']);
     }
 
-    public function delete_api(Request $request,$id)
+    public function delete_api(Request $request, $id)
     {
         $this->check();
-        if (!is_numeric($id)) {
-            abort(400, 'Not Valid Username');
-        }
-        Api::where('id', $id)->delete();
-        return redirect()->intended(route('settings', ['name' => 'api']));
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        Api::whereKey((int) $id)->delete();
+        return redirect()->route('settings', ['name' => 'api']);
     }
 
     public function block(Request $request)
     {
         $this->check();
-        $request->validate([
-            'status'=>'required|string'
-        ]);
-        if($request->status=='active')
-        {
-            Process::run("sudo iptables -A OUTPUT -m geoip -p tcp --destination-port 80 --dst-cc IR -j DROP");
-            Process::run("sudo iptables -A OUTPUT -m geoip -p tcp --destination-port 443 --dst-cc IR -j DROP");
-        }
-        else
-        {
-            Process::run("sudo iptables -F");
+        $data = $request->validate(['status' => ['required', 'in:active,inactive']]);
+        $rules = [
+            ['-A', 'OUTPUT', '-m', 'geoip', '-p', 'tcp', '--destination-port', '80', '--dst-cc', 'IR', '-j', 'DROP'],
+            ['-A', 'OUTPUT', '-m', 'geoip', '-p', 'tcp', '--destination-port', '443', '--dst-cc', 'IR', '-j', 'DROP'],
+        ];
 
+        foreach ($rules as $rule) {
+            Process::run(array_merge(['iptables'], $data['status'] === 'active' ? $rule : array_replace($rule, [0 => '-D'])));
         }
-
-        return redirect()->intended(route('settings', ['name' => 'block']));
+        return redirect()->route('settings', ['name' => 'block']);
     }
 
     public function fakeurl(Request $request)
     {
         $this->check();
-        $request->validate([
-            'fake_address'=>'required|string'
-        ]);
-        $txt = '
-<?php
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Credentials: true");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-function curl_get_contents($url) {
-    $ch = curl_init();
-    $header[0] = "Accept: text/xml,application/xml,application/xhtml+xml,font/woff,font/woff2,";
-    $header[0] .= "text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5,application/font-woff,*";
-    $header[] = "Access-Control-Allow-Origin: *";
-    $header[] = "Connection: keep-alive";
-    $header[] = "Keep-Alive: 300";
-    $header[] = "Accept-Charset: ISO-8859-1,utf-8;q=0.7,*;q=0.7";
-    $header[] = "Accept-Language: en-us,en;q=0.5";
-    curl_setopt( $ch, CURLOPT_HTTPHEADER, $header );
+        $data = $request->validate(['fake_address' => ['required', 'url', 'max:2048']]);
+        $host = parse_url($data['fake_address'], PHP_URL_HOST);
+        abort_unless($host !== null, 422, 'Invalid URL');
 
-    curl_setopt($ch, CURLOPT_HEADER, 0);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_URL, $url);
-
-    // I have added below two lines
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, 0);
-
-    $data = curl_exec($ch);
-    curl_close($ch);
-
-    return $data;
-}
-$site = "' . $request->fake_address . '";
-echo curl_get_contents("$site");
-        ';
-        file_put_contents("/var/www/html/example/index.php", $txt);
-        return redirect()->intended(route('settings', ['name' => 'fakeaddress']));
+        $txt = "<?php\n\n$url = " . var_export($data['fake_address'], true) . ";\n$ch = curl_init($url);\ncurl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => false, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_TIMEOUT => 20, CURLOPT_SSL_VERIFYPEER => true, CURLOPT_SSL_VERIFYHOST => 2]);\n$data = curl_exec($ch);\n$status = curl_getinfo($ch, CURLINFO_HTTP_CODE);\ncurl_close($ch);\nhttp_response_code($status >= 200 && $status < 600 ? $status : 502);\necho $data === false ? 'Upstream unavailable' : $data;\n";
+        file_put_contents('/var/www/html/example/index.php', $txt, LOCK_EX);
+        return redirect()->route('settings', ['name' => 'fakeaddress']);
     }
-
-
-
 }
