@@ -89,6 +89,12 @@ cp -a "${SOURCE_DIR}/Web Panel/app/." "${APP_ROOT}/"
 rm -rf "${SOURCE_DIR}"
 
 [[ -f "${APP_ROOT}/artisan" ]] || { echo "Laravel artisan was not found in ${APP_ROOT}." >&2; exit 1; }
+
+# Apply all validated production fixes, public assets and remote-user sync
+# immediately after the Laravel source is copied to the new server.
+chmod +x "${APP_ROOT}/install-fixes.sh"
+"${APP_ROOT}/install-fixes.sh" "${APP_ROOT}"
+
 mkdir -p "${APP_ROOT}/storage/backup" "${APP_ROOT}/bootstrap/cache"
 
 DB_PASSWORD_SQL=${DB_PASSWORD//\'/\'\'}
