@@ -26,9 +26,9 @@ Route::prefix('cp')->middleware('auth:admins')->group(function () {
     Route::get('/users', [UserController::class, 'index'])->name('users');
     Route::post('/users', [UserController::class, 'newuser'])->name('new.user');
     Route::post('/users/bulk', [UserController::class, 'bulkuser'])->name('new.bulkuser');
-    Route::get('/user/active/{username}', [UserController::class, 'activeuser'])->name('user.active');
-    Route::get('/user/deactive/{username}', [UserController::class, 'deactiveuser'])->name('user.deactive');
-    Route::get('/user/reset/{username}', [UserController::class, 'reset_traffic'])->name('user.reset');
+    Route::get('/user/active/{username}', [UserController::class, 'activeuser'])->middleware('route.username')->name('user.active');
+    Route::get('/user/deactive/{username}', [UserController::class, 'deactiveuser'])->middleware('route.username')->name('user.deactive');
+    Route::get('/user/reset/{username}', [UserController::class, 'reset_traffic'])->middleware('route.username')->name('user.reset');
     Route::get('/user/delete/{username}', [UserController::class, 'delete'])->name('user.delete');
     Route::post('/user/delete/bulk', [UserController::class, 'delete_bulk'])->name('user.delete.bulk');
     Route::get('/user/renewal/{username}', [UserController::class, 'renewal_edit'])->name('new.renewal.edit');
