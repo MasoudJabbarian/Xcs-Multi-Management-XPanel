@@ -11,45 +11,24 @@ USER_CONTROLLER="${APP_ROOT}/app/Http/Controllers/UserController.php"
 python3 - "${AUTH_CONFIG}" <<'PY'
 from pathlib import Path
 import sys
-
-path = Path(sys.argv[1])
-text = path.read_text()
-
-old = """        'web' => [\n            'driver' => 'session',\n            'provider' => 'users',\n        ],"""
-new = """        'web' => [\n            'driver' => 'session',\n            'provider' => 'admins',\n        ],"""
-
-if old in text:
-    text = text.replace(old, new, 1)
-
-path.write_text(text)
+p=Path(sys.argv[1]); t=p.read_text()
+t=t.replace("'provider' => 'users',", "'provider' => 'admins',", 1)
+p.write_text(t)
 PY
 
 python3 - "${USER_CONTROLLER}" <<'PY'
 from pathlib import Path
-import re
-import sys
-
-path = Path(sys.argv[1])
-text = path.read_text()
-
-# The Users filter reads GET parameters, so Request must be present in index().
-text, count = re.subn(
-    r'public function index\(\)\s*\{',
-    'public function index(Request $request)\n    {',
-    text,
-    count=1,
-)
-if count != 1:
-    raise SystemExit('Could not patch UserController::index() signature.')
-
-# Bulk delete must be safe when no checkbox was selected.
-text = text.replace(
-    'foreach ($request->usernamed as $username) {',
-    'foreach ((array) $request->input(\'usernamed\', []) as $username) {',
-)
-
-path.write_text(text)
+import re,sys
+p=Path(sys.argv[1]); t=p.read_text()
+# Accept both the original index() and a previously patched index(Request $request).
+if re.search(r'public function index\(\s*\)', t):
+    t=re.sub(r'public function index\(\s*\)', 'public function index(Request $request)', t, count=1)
+elif not re.search(r'public function index\(\s*Request\s+\$request\s*\)', t):
+    raise SystemExit('Could not locate UserController::index() signature.')
+t=t.replace("foreach ($request->usernamed as $username) {", "foreach ((array) $request->input('usernamed', []) as $username) {")
+p.write_text(t)
 PY
 
 php -l "${AUTH_CONFIG}"
 php -l "${USER_CONTROLLER}"
+echo 'XCS hardening completed successfully.'
