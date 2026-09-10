@@ -94,6 +94,10 @@ cp -a "${SOURCE_DIR}/Web Panel/app/." "${APP_ROOT}/"
 chmod +x "${APP_ROOT}/install-fixes.sh"
 "${APP_ROOT}/install-fixes.sh" "${APP_ROOT}" "${SOURCE_DIR}/Web Panel/cp/assets"
 
+# Apply the Users page server/status/package/search filters.
+chmod +x "${SOURCE_DIR}/install-ui-filters.sh"
+"${SOURCE_DIR}/install-ui-filters.sh" "${APP_ROOT}"
+
 rm -rf "${SOURCE_DIR}"
 
 mkdir -p "${APP_ROOT}/storage/backup" "${APP_ROOT}/bootstrap/cache"
