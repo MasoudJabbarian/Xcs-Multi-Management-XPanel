@@ -98,6 +98,11 @@ chmod +x "${APP_ROOT}/install-fixes.sh"
 chmod +x "${SOURCE_DIR}/install-ui-filters.sh"
 "${SOURCE_DIR}/install-ui-filters.sh" "${APP_ROOT}"
 
+# Apply final installer hardening: valid default auth provider, correct
+# Request injection for the Users filters, and safe bulk-delete input.
+chmod +x "${APP_ROOT}/install-hardening.sh"
+"${APP_ROOT}/install-hardening.sh" "${APP_ROOT}"
+
 rm -rf "${SOURCE_DIR}"
 
 mkdir -p "${APP_ROOT}/storage/backup" "${APP_ROOT}/bootstrap/cache"
