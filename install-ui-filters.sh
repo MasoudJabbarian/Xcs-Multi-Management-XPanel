@@ -83,7 +83,6 @@ new = '''        $selectedServers = $request->input('servers', []);
 if old in text:
     text = text.replace(old, new, 1)
 else:
-    # Already patched: verify the expected filter query exists and leave it intact.
     required = [
         "$selectedServers = $request->input('servers', []);",
         "$userQuery->whereIn('server', $selectedServers);",
@@ -99,24 +98,37 @@ PY
 
 python3 - "${USERS_VIEW}" <<'PY'
 from pathlib import Path
+import re
 import sys
 
 path = Path(sys.argv[1])
 text = path.read_text()
 
-# Remove an older filter block if this installer was previously run. The old
-# version placed a GET form inside the bulk-delete POST form, which makes the
-# browser submit to user.delete.bulk when Filter is clicked.
-start_marker = '<div class="p-4 pb-2">'
-end_marker = '                                <div class="text-end p-4 pb-0">'
-start = text.find(start_marker)
-if start != -1:
-    candidate_end = text.find(end_marker, start)
-    candidate = text[start:candidate_end] if candidate_end != -1 else ''
-    if 'id="filter-status"' in candidate and 'name="servers[]"' in candidate:
-        text = text[:start] + text[candidate_end:]
+# Remove every previously installed, tagged filter block first. This makes the
+# installer idempotent and also repairs an earlier version that nested the GET
+# filter form inside the bulk-delete POST form.
+tagged = re.compile(
+    r'\s*<!-- XCS_USER_FILTERS_START -->.*?<!-- XCS_USER_FILTERS_END -->\s*',
+    re.S,
+)
+text = tagged.sub('\n', text)
 
-filter_block = r'''                                <!-- XCS_USER_FILTERS_START -->
+# Remove the legacy untagged filter block if an older installer inserted it
+# immediately before the delete controls. We only remove a block that clearly
+# contains our filter fields, so unrelated p-4 containers are preserved.
+legacy = re.compile(
+    r'\s*<div class="p-4 pb-2">\s*'
+    r'<form\s+method="GET"\s+action="\{\{\s*route\([\'\"]users[\'\"]\)\s*\}\}">.*?'
+    r'</form>\s*</div>\s*',
+    re.S,
+)
+for match in list(legacy.finditer(text)):
+    block = match.group(0)
+    if 'name="servers[]"' in block and 'id="filter-status"' in block:
+        text = text[:match.start()] + '\n' + text[match.end():]
+        break
+
+filter_block = '''                                <!-- XCS_USER_FILTERS_START -->
                                 <div class="p-4 pb-2">
                                     <form method="GET" action="{{ route('users') }}">
                                         <div class="row g-3 align-items-end">
@@ -187,32 +199,27 @@ filter_block = r'''                                <!-- XCS_USER_FILTERS_START -
 
 '''
 
-# Insert the filter form BEFORE the bulk-delete form, never inside it.
-delete_form_marker = '                                <form action="{{route(\'user.delete.bulk\')}}" method="post" enctype="multipart/form-data">'
-if delete_form_marker not in text:
-    # Handle the same source with whitespace differences.
-    delete_form_marker = '                                <form action="{{route(\'user.delete.bulk\')}}"'
+# Find the actual bulk-delete form by its route, allowing arbitrary whitespace
+# and attribute formatting. Insert the filter form immediately before it so
+# the two forms are always siblings, never nested.
+delete_re = re.compile(
+    r'(?m)^(?P<indent>\s*)<form\b[^>]*action\s*=\s*'
+    r'["\']\{\{\s*route\(\s*["\']user\.delete\.bulk["\']\s*\)\s*\}\}["\'][^>]*>'
+)
+match = delete_re.search(text)
+if not match:
+    # Fallback for Blade formatting that uses no quotes around route arguments.
+    delete_re = re.compile(
+        r'(?m)^(?P<indent>\s*)<form\b[^>]*user\.delete\.bulk[^>]*>'
+    )
+    match = delete_re.search(text)
 
-if delete_form_marker not in text:
-    raise SystemExit('Bulk delete form marker not found in users view.')
+if not match:
+    raise SystemExit('Bulk delete form not found in users view; no changes made.')
 
-if '<!-- XCS_USER_FILTERS_START -->' not in text:
-    text = text.replace(delete_form_marker, filter_block + delete_form_marker, 1)
-else:
-    # If a tagged block already exists, ensure it is before the delete form.
-    tagged_start = text.find('                                <!-- XCS_USER_FILTERS_START -->')
-    tagged_end = text.find('                                <!-- XCS_USER_FILTERS_END -->', tagged_start)
-    if tagged_end == -1:
-        raise SystemExit('Incomplete XCS filter block.')
-    tagged_end = text.find('\n', tagged_end) + 1
-    block = text[tagged_start:tagged_end]
-    text = text[:tagged_start] + text[tagged_end:]
-    delete_pos = text.find(delete_form_marker)
-    if delete_pos == -1:
-        raise SystemExit('Bulk delete form marker not found after filter cleanup.')
-    text = text[:delete_pos] + block + '\n' + text[delete_pos:]
-
+text = text[:match.start()] + filter_block + text[match.start():]
 path.write_text(text)
 PY
 
 php -l "${USER_CONTROLLER}"
+echo 'XCS UI filters installed successfully.'
