@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class SettingsController extends Controller
@@ -210,16 +211,10 @@ class SettingsController extends Controller
         return redirect()->route('settings', ['name' => 'backup']);
     }
 
-    public function make_backup()
+    public function make_backup(DatabaseBackupService $backupService)
     {
         $this->check();
-        $date = now()->format('Y-m-d---H-i-s');
-        $result = Process::env(['MYSQL_PWD' => (string) env('DB_PASSWORD')])
-            ->timeout(120)
-            ->run(['mysqldump', '-u', (string) env('DB_USERNAME'), (string) env('DB_DATABASE', 'Xcs')]);
-        abort_unless($result->successful(), 500, 'Database backup failed');
-
-        Storage::put('backup/Xcs-' . $date . '.sql', $result->output());
+        $backupService->create('Xcs');
         return redirect()->route('settings', ['name' => 'backup']);
     }
 
