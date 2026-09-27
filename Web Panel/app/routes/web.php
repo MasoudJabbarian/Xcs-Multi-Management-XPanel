@@ -52,6 +52,11 @@ Route::prefix('cp')->middleware('auth:admins')->group(function () {
     Route::get('/settings/backup/delete/{name}', [SettingsController::class, 'delete_backup'])->name('settings.backup.delete');
     Route::get('/settings/backup/restore/{name}', [SettingsController::class, 'restore_backup'])->name('settings.backup.restore');
     Route::post('/settings/backup/make/', [SettingsController::class, 'make_backup'])->name('settings.backup.make');
+    Route::post('/settings/backup/schedule', [SettingsController::class, 'update_remote_backup_schedule'])->name('settings.backup.schedule');
+    Route::post('/settings/backup/remote/all', [SettingsController::class, 'remote_backup_all'])->name('settings.backup.remote.all');
+    Route::get('/settings/backup/remote/{id}/download', [SettingsController::class, 'download_remote_backup'])->name('settings.backup.remote.download');
+    Route::get('/settings/backup/remote/{id}/delete', [SettingsController::class, 'delete_remote_backup'])->name('settings.backup.remote.delete');
+    Route::post('/settings/server/{id}/backup', [SettingsController::class, 'remote_backup_server'])->name('settings.server.backup');
     Route::get('/settings/backup/dl/{name}', [SettingsController::class, 'download_backup'])->name('settings.backup.dl');
     Route::post('/settings/api', [SettingsController::class, 'insert_api'])->name('settings.api');
     Route::get('/settings/api/renew/{id}', [SettingsController::class, 'renew_api'])->name('settings.token.renew');
