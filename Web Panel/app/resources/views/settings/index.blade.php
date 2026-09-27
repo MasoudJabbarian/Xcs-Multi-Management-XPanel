@@ -134,6 +134,17 @@
                                                                                     <i class="ti ti-edit-circle f-18"></i>
                                                                                 </a>
                                                                             </li>
+                                                                            <li class="list-inline-item align-bottom" data-bs-toggle="tooltip"
+                                                                                title="Backup">
+                                                                                <form action="{{ route('settings.server.backup', ['id' => $server->id]) }}" method="post" style="display:inline"
+                                                                                      onsubmit="return confirm('Start a backup for this server now?');">
+                                                                                    @csrf
+                                                                                    <button type="submit" class="avtar avtar-xs btn-link-primary btn-pc-default"
+                                                                                            style="border:0;background:transparent;">
+                                                                                        <i class="ti ti-database-export f-18"></i>
+                                                                                    </button>
+                                                                                </form>
+                                                                            </li>
                                                                         </ul></td>
                                                                 </tr>
                                                                 @endforeach
