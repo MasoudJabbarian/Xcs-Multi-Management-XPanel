@@ -8,6 +8,9 @@ use App\Models\Api;
 use App\Models\Settings;
 use App\Models\Traffic;
 use App\Models\Servers;
+use App\Models\RemoteBackup;
+use App\Services\DatabaseBackupService;
+use App\Services\RemoteBackupService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -49,7 +52,15 @@ class SettingsController extends Controller
                 ->sort()
                 ->values()
                 ->all();
-            return view('settings.backup', compact('lists'));
+
+            $remoteBackups = RemoteBackup::with('server')
+                ->where('status', 'success')
+                ->orderByDesc('taken_at')
+                ->orderByDesc('id')
+                ->get();
+
+            $backupSettings = Settings::first();
+            return view('settings.backup', compact('lists', 'remoteBackups', 'backupSettings'));
         }
 
         if ($name === 'api') {
@@ -217,6 +228,111 @@ class SettingsController extends Controller
         $this->check();
         $path = $this->backupPath((string) $name);
         return response()->download($path, basename($path), ['Content-Type' => 'application/sql']);
+    }
+
+    public function update_remote_backup_schedule(Request $request)
+    {
+        $this->check();
+
+        $data = $request->validate([
+            'enabled' => ['nullable', 'boolean'],
+            'times' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        $times = collect(preg_split('/[\s,;]+/', (string) ($data['times'] ?? '')))
+            ->map(fn ($time) => trim($time))
+            ->filter()
+            ->unique()
+            ->values();
+
+        foreach ($times as $time) {
+            abort_unless(preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time), 422, 'Invalid backup time: ' . $time);
+        }
+
+        Settings::updateOrCreate(['id' => 1], [
+            'remote_backup_enabled' => !empty($data['enabled']) ? '1' : '0',
+            'remote_backup_times' => $times->implode(','),
+        ]);
+
+        return redirect()->route('settings', ['name' => 'backup'])
+            ->with('success', 'Remote backup schedule saved.');
+    }
+
+    public function remote_backup_all(Request $request, RemoteBackupService $backupService)
+    {
+        $this->check();
+
+        $success = 0;
+        $failed = 0;
+
+        foreach (Servers::orderBy('id')->get() as $server) {
+            try {
+                $backupService->createRemoteBackup($server);
+                $success++;
+            } catch (\Throwable $e) {
+                $failed++;
+                Log::error('Manual remote backup failed.', [
+                    'server_id' => $server->id,
+                    'server' => $server->name,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $message = "Remote backup finished. Successful: {$success}, Failed: {$failed}.";
+        return redirect()->route('settings', ['name' => 'backup'])
+            ->with($failed > 0 ? 'error' : 'success', $message);
+    }
+
+    public function remote_backup_server(Request $request, $id, RemoteBackupService $backupService)
+    {
+        $this->check();
+
+        abort_unless(is_numeric($id), 400, 'Not Valid ID');
+        $server = Servers::findOrFail((int) $id);
+
+        try {
+            $backupService->createRemoteBackup($server);
+        } catch (\Throwable $e) {
+            Log::error('Manual server backup failed.', [
+                'server_id' => $server->id,
+                'server' => $server->name,
+                'error' => $e->getMessage(),
+            ]);
+
+            return redirect()->route('settings', ['name' => 'server'])
+                ->with('error', 'Backup failed for ' . $server->name . ': ' . $e->getMessage());
+        }
+
+        return redirect()->route('settings', ['name' => 'server'])
+            ->with('success', 'Backup completed for ' . $server->name . '.');
+    }
+
+    public function download_remote_backup(Request $request, $id)
+    {
+        $this->check();
+
+        $backup = RemoteBackup::whereKey((int) $id)->where('status', 'success')->firstOrFail();
+        $path = storage_path('app/' . $backup->path);
+        abort_unless(is_file($path), 404);
+
+        return response()->download($path, $backup->filename, [
+            'Content-Type' => 'application/sql',
+        ]);
+    }
+
+    public function delete_remote_backup(Request $request, $id)
+    {
+        $this->check();
+
+        $backup = RemoteBackup::whereKey((int) $id)->firstOrFail();
+        if ($backup->path !== '') {
+            Storage::delete($backup->path);
+        }
+        $backup->delete();
+
+        return redirect()->route('settings', ['name' => 'backup'])
+            ->with('success', 'Backup deleted.');
     }
 
     public function insert_api(Request $request)
