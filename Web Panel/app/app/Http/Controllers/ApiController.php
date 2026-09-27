@@ -6,6 +6,7 @@ use App\Models\Api;
 use App\Models\Settings;
 use App\Models\Traffic;
 use App\Models\Users;
+use App\Services\DatabaseBackupService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Process;
@@ -380,6 +381,33 @@ class ApiController extends Controller
         }
         $data = json_decode(json_encode($data));
         return response()->json($data);
+    }
+
+    public function backup(Request $request, DatabaseBackupService $backupService)
+    {
+        $request->validate([
+            'token' => ['required', 'string'],
+        ]);
+
+        $this->checktoken($request->token);
+
+        try {
+            $filename = $backupService->create('Xcs-Remote');
+            $backupService->cleanupRemoteBackups(15);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Database backup failed',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+
+        return response()
+            ->download(
+                storage_path('app/backup/' . $filename),
+                $filename,
+                ['Content-Type' => 'application/sql']
+            )
+            ->header('X-Xcs-Backup-Name', $filename);
     }
 
 }
