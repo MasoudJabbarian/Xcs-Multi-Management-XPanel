@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class Settings extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'ssh_port',
         'tls_port',
@@ -16,6 +17,8 @@ class Settings extends Model
         'language',
         'multiuser',
         'ststus_multiuser',
-        'home_url'
+        'home_url',
+        'remote_backup_enabled',
+        'remote_backup_times',
     ];
 }
