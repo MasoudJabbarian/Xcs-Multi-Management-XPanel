@@ -389,7 +389,7 @@ class ApiController extends Controller
             'token' => ['required', 'string'],
         ]);
 
-        $this->checktoken($request->token);
+        abort_unless(Api::where('token', $request->token)->exists(), 403, 'Invalid API token');
 
         try {
             $filename = $backupService->create('Xcs-Remote');
