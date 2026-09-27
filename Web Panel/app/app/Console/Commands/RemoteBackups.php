@@ -2,8 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Servers;
 use App\Models\RemoteBackup;
+use App\Models\Servers;
+use App\Models\Settings;
 use App\Services\RemoteBackupService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -15,8 +16,9 @@ class RemoteBackups extends Command
 
     public function handle(RemoteBackupService $backupService): int
     {
-        $enabled = (bool) setting('remote_backup_enabled', false);
-        $times = setting('remote_backup_times', '');
+        $settings = Settings::first();
+        $enabled = $settings?->remote_backup_enabled === '1';
+        $times = (string) ($settings?->remote_backup_times ?? '');
 
         if (!$enabled) {
             return self::SUCCESS;
@@ -24,7 +26,7 @@ class RemoteBackups extends Command
 
         $now = now();
         $current = $now->format('H:i');
-        $configured = collect(preg_split('/[\s,;]+/', (string) $times))
+        $configured = collect(preg_split('/[\s,;]+/', $times))
             ->map(fn ($time) => trim($time))
             ->filter(fn ($time) => preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time))
             ->unique()
