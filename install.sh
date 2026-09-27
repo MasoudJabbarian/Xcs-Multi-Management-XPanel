@@ -152,6 +152,12 @@ php artisan key:generate --force
 php artisan config:clear
 php artisan migrate --force
 
+# Install and enable the remote-server backup feature. This standalone script
+# can also be executed later on an existing installation without reinstalling
+# the whole panel.
+chmod +x "${SOURCE_DIR}/install-remote-backups.sh"
+"${SOURCE_DIR}/install-remote-backups.sh" "${APP_ROOT}"
+
 php artisan tinker --execute='\App\Models\Admins::updateOrCreate(["username" => getenv("XCS_ADMIN_USERNAME")], ["password" => getenv("XCS_ADMIN_PASSWORD"), "permission" => "admin", "credit" => "0", "status" => "active"]);'
 
 cat > /etc/apache2/sites-available/xcs.conf <<APACHE
