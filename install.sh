@@ -103,8 +103,6 @@ chmod +x "${SOURCE_DIR}/install-ui-filters.sh"
 chmod +x "${APP_ROOT}/install-hardening.sh"
 "${APP_ROOT}/install-hardening.sh" "${APP_ROOT}"
 
-rm -rf "${SOURCE_DIR}"
-
 mkdir -p "${APP_ROOT}/storage/backup" "${APP_ROOT}/bootstrap/cache"
 
 DB_PASSWORD_SQL=${DB_PASSWORD//\'/\'\'}
